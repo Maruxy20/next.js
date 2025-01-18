@@ -26,11 +26,27 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 */
 
-import type { NextConfig } from '../../../../types'
+import type { NextConfig } from '../../../types'
 import type { WebpackLayerName } from '../../../lib/constants'
 import { isWasm, transform } from '../../swc'
 import { getLoaderSWCOptions } from '../../swc/options'
 import path, { isAbsolute } from 'path'
+import { babelIncludeRegexes } from '../../webpack-config'
+import { isResourceInPackages } from '../../handle-externals'
+
+const maybeExclude = (
+  excludePath: string,
+  transpilePackages: string[]
+): boolean => {
+  if (babelIncludeRegexes.some((r) => r.test(excludePath))) {
+    return false
+  }
+
+  const shouldBeBundled = isResourceInPackages(excludePath, transpilePackages)
+  if (shouldBeBundled) return false
+
+  return excludePath.includes('node_modules')
+}
 
 export interface SWCLoaderOptions {
   rootDir: string
@@ -44,20 +60,45 @@ export interface SWCLoaderOptions {
   supportedBrowsers: string[] | undefined
   swcCacheDir: string
   serverComponents?: boolean
+  serverReferenceHashSalt: string
   bundleLayer?: WebpackLayerName
   esm?: boolean
+  transpilePackages?: string[]
 }
+
+// these are exact code conditions checked
+// for to force transpiling a `node_module`
+const FORCE_TRANSPILE_CONDITIONS =
+  /(next\/font|next\/dynamic|use server|use client)/
 
 async function loaderTransform(
   this: any,
-  parentTrace: any,
   source?: string,
   inputSourceMap?: any
 ) {
   // Make the loader async
   const filename = this.resourcePath
 
+  // Ensure `.d.ts` are not processed.
+  if (filename.endsWith('.d.ts')) {
+    return [source, inputSourceMap]
+  }
+
   let loaderOptions: SWCLoaderOptions = this.getOptions() || {}
+  const shouldMaybeExclude = maybeExclude(
+    filename,
+    loaderOptions.transpilePackages || []
+  )
+
+  if (shouldMaybeExclude) {
+    if (!source) {
+      throw new Error(`Invariant might be excluded but missing source`)
+    }
+
+    if (!FORCE_TRANSPILE_CONDITIONS.test(source)) {
+      return [source, inputSourceMap]
+    }
+  }
 
   const {
     isServer,
@@ -70,6 +111,7 @@ async function loaderTransform(
     supportedBrowsers,
     swcCacheDir,
     serverComponents,
+    serverReferenceHashSalt,
     bundleLayer,
     esm,
   } = loaderOptions
@@ -82,7 +124,10 @@ async function loaderTransform(
     filename,
     isServer,
     isPageFile,
-    development: this.mode === 'development',
+    development:
+      this.mode === 'development' ||
+      !!nextConfig.experimental?.allowDevelopmentBuild,
+    isDynamicIo: nextConfig.experimental?.dynamicIO,
     hasReactRefresh,
     modularizeImports: nextConfig?.modularizeImports,
     optimizePackageImports: nextConfig?.experimental?.optimizePackageImports,
@@ -94,8 +139,10 @@ async function loaderTransform(
     swcCacheDir,
     relativeFilePathFromRoot,
     serverComponents,
+    serverReferenceHashSalt,
     bundleLayer,
     esm,
+    cacheHandlers: nextConfig.experimental?.cacheHandlers,
   })
 
   const programmaticOptions = {
@@ -132,17 +179,14 @@ async function loaderTransform(
       this.mode === 'development'
   }
 
-  const swcSpan = parentTrace.traceChild('next-swc-transform')
-  return swcSpan.traceAsyncFn(() =>
-    transform(source as any, programmaticOptions).then((output) => {
-      if (output.eliminatedPackages && this.eliminatedPackages) {
-        for (const pkg of JSON.parse(output.eliminatedPackages)) {
-          this.eliminatedPackages.add(pkg)
-        }
+  return transform(source as any, programmaticOptions).then((output) => {
+    if (output.eliminatedPackages && this.eliminatedPackages) {
+      for (const pkg of JSON.parse(output.eliminatedPackages)) {
+        this.eliminatedPackages.add(pkg)
       }
-      return [output.code, output.map ? JSON.parse(output.map) : undefined]
-    })
-  )
+    }
+    return [output.code, output.map ? JSON.parse(output.map) : undefined]
+  })
 }
 
 const EXCLUDED_PATHS =
@@ -150,8 +194,17 @@ const EXCLUDED_PATHS =
 
 export function pitch(this: any) {
   const callback = this.async()
+  let loaderOptions: SWCLoaderOptions = this.getOptions() || {}
+
+  const shouldMaybeExclude = maybeExclude(
+    this.resourcePath,
+    loaderOptions.transpilePackages || []
+  )
+
   ;(async () => {
     if (
+      // if it might be excluded/no-op we can't use pitch loader
+      !shouldMaybeExclude &&
       // TODO: investigate swc file reading in PnP mode?
       !process.versions.pnp &&
       !EXCLUDED_PATHS.test(this.resourcePath) &&
@@ -159,11 +212,8 @@ export function pitch(this: any) {
       isAbsolute(this.resourcePath) &&
       !(await isWasm())
     ) {
-      const loaderSpan = this.currentTraceSpan.traceChild('next-swc-loader')
       this.addDependency(this.resourcePath)
-      return loaderSpan.traceAsyncFn(() =>
-        loaderTransform.call(this, loaderSpan)
-      )
+      return loaderTransform.call(this)
     }
   })().then((r) => {
     if (r) return callback(null, ...r)
@@ -176,20 +226,15 @@ export default function swcLoader(
   inputSource: string,
   inputSourceMap: any
 ) {
-  const loaderSpan = this.currentTraceSpan.traceChild('next-swc-loader')
   const callback = this.async()
-  loaderSpan
-    .traceAsyncFn(() =>
-      loaderTransform.call(this, loaderSpan, inputSource, inputSourceMap)
-    )
-    .then(
-      ([transformedSource, outputSourceMap]: any) => {
-        callback(null, transformedSource, outputSourceMap || inputSourceMap)
-      },
-      (err: Error) => {
-        callback(err)
-      }
-    )
+  loaderTransform.call(this, inputSource, inputSourceMap).then(
+    ([transformedSource, outputSourceMap]: any) => {
+      callback(null, transformedSource, outputSourceMap || inputSourceMap)
+    },
+    (err: Error) => {
+      callback(err)
+    }
+  )
 }
 
 // accept Buffers instead of strings
