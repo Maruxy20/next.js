@@ -952,7 +952,7 @@ export default async function getBaseWebpackConfig(
           ['swcImportSource', !!jsConfig?.compilerOptions?.jsxImportSource],
           ['swcEmotion', !!config.compiler?.emotion],
           ['transpilePackages', !!config.transpilePackages],
-          ['skipMiddlewareUrlNormalize', !!config.skipMiddlewareUrlNormalize],
+          ['skipProxyUrlNormalize', !!config.skipProxyUrlNormalize],
           ['skipTrailingSlashRedirect', !!config.skipTrailingSlashRedirect],
           ['modularizeImports', !!config.modularizeImports],
           // If esmExternals is not same as default value, it represents customized usage
@@ -1554,7 +1554,7 @@ export default async function getBaseWebpackConfig(
         ...getNextRootParamsRules({
           isRootParamsEnabled:
             config.experimental.rootParams ??
-            // `experimental.dynamicIO` implies `experimental.rootParams`.
+            // `experimental.cacheComponents` implies `experimental.rootParams`.
             config.experimental.cacheComponents ??
             false,
           isClient,

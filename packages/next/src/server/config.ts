@@ -130,14 +130,30 @@ function checkDeprecations(
   silent: boolean,
   dir: string
 ) {
-  if (userConfig.experimental?.dynamicIO !== undefined) {
-    warnOptionHasBeenDeprecated(
-      userConfig,
-      'experimental.dynamicIO',
-      `\`experimental.dynamicIO\` has been renamed to \`experimental.cacheComponents\`. Please update your ${configFileName} file accordingly.`,
-      silent
-    )
-  }
+  warnOptionHasBeenDeprecated(
+    userConfig,
+    'experimental.middlewarePrefetch',
+    `\`experimental.middlewarePrefetch\` is deprecated. Please use \`experimental.proxyPrefetch\` instead in ${configFileName}.`,
+    silent
+  )
+  warnOptionHasBeenDeprecated(
+    userConfig,
+    'experimental.middlewareClientMaxBodySize',
+    `\`experimental.middlewareClientMaxBodySize\` is deprecated. Please use \`experimental.proxyClientMaxBodySize\` instead in ${configFileName}.`,
+    silent
+  )
+  warnOptionHasBeenDeprecated(
+    userConfig,
+    'experimental.externalMiddlewareRewritesResolve',
+    `\`experimental.externalMiddlewareRewritesResolve\` is deprecated. Please use \`experimental.externalProxyRewritesResolve\` instead in ${configFileName}.`,
+    silent
+  )
+  warnOptionHasBeenDeprecated(
+    userConfig,
+    'skipMiddlewareUrlNormalize',
+    `\`skipMiddlewareUrlNormalize\` is deprecated. Please use \`skipProxyUrlNormalize\` instead in ${configFileName}.`,
+    silent
+  )
 
   warnOptionHasBeenDeprecated(
     userConfig,
@@ -258,19 +274,6 @@ function assignDefaultsAndValidate(
       userConfig.trailingSlash = (userConfig as any).exportTrailingSlash
     }
     delete (userConfig as any).exportTrailingSlash
-  }
-
-  // Handle migration of experimental.dynamicIO to experimental.cacheComponents
-  if (userConfig.experimental?.dynamicIO !== undefined) {
-    // If cacheComponents was not explicitly set by the user (i.e., it's still the default value),
-    // use the dynamicIO value. We check against the user config, not the merged result.
-    if (userConfig.experimental?.cacheComponents === undefined) {
-      userConfig.experimental.cacheComponents =
-        userConfig.experimental.dynamicIO
-    }
-
-    // Remove the deprecated property
-    delete userConfig.experimental.dynamicIO
   }
 
   const config = Object.keys(userConfig).reduce<{ [key: string]: any }>(
@@ -728,18 +731,80 @@ function assignDefaultsAndValidate(
     }
   }
 
-  // Normalize & validate experimental.middlewareClientMaxBodySize
-  if (typeof result.experimental?.middlewareClientMaxBodySize !== 'undefined') {
-    const middlewareClientMaxBodySize =
-      result.experimental.middlewareClientMaxBodySize
+  // Throw if both Middleware and Proxy config are set.
+  if (
+    userConfig.experimental?.proxyClientMaxBodySize !== undefined &&
+    userConfig.experimental?.middlewareClientMaxBodySize !== undefined
+  ) {
+    throw new Error(
+      'Config options `experimental.proxyClientMaxBodySize` and `experimental.middlewareClientMaxBodySize` cannot be set at the same time. Please use `experimental.proxyClientMaxBodySize` instead.'
+    )
+  }
+  if (
+    userConfig.experimental?.proxyPrefetch !== undefined &&
+    userConfig.experimental?.middlewarePrefetch !== undefined
+  ) {
+    throw new Error(
+      'Config options `experimental.proxyPrefetch` and `experimental.middlewarePrefetch` cannot be set at the same time. Please use `experimental.proxyPrefetch` instead.'
+    )
+  }
+  if (
+    userConfig.experimental?.externalProxyRewritesResolve !== undefined &&
+    userConfig.experimental?.externalMiddlewareRewritesResolve !== undefined
+  ) {
+    throw new Error(
+      'Config options `experimental.externalProxyRewritesResolve` and `experimental.externalMiddlewareRewritesResolve` cannot be set at the same time. Please use `experimental.externalProxyRewritesResolve` instead.'
+    )
+  }
+  if (
+    userConfig.skipProxyUrlNormalize !== undefined &&
+    userConfig.skipMiddlewareUrlNormalize !== undefined
+  ) {
+    throw new Error(
+      'Config options `skipProxyUrlNormalize` and `skipMiddlewareUrlNormalize` cannot be set at the same time. Please use `skipProxyUrlNormalize` instead.'
+    )
+  }
+
+  // Map Proxy config to Middleware config as it is currently an alias.
+  if (
+    userConfig.experimental?.proxyClientMaxBodySize === undefined &&
+    userConfig.experimental?.middlewareClientMaxBodySize !== undefined
+  ) {
+    result.experimental.proxyClientMaxBodySize =
+      userConfig.experimental.middlewareClientMaxBodySize
+  }
+  if (
+    userConfig.experimental?.proxyPrefetch === undefined &&
+    userConfig.experimental?.middlewarePrefetch !== undefined
+  ) {
+    result.experimental.proxyPrefetch =
+      userConfig.experimental.middlewarePrefetch
+  }
+  if (
+    userConfig.experimental?.externalProxyRewritesResolve === undefined &&
+    userConfig.experimental?.externalMiddlewareRewritesResolve !== undefined
+  ) {
+    result.experimental.externalProxyRewritesResolve =
+      userConfig.experimental.externalMiddlewareRewritesResolve
+  }
+  if (
+    userConfig.skipProxyUrlNormalize === undefined &&
+    userConfig.skipMiddlewareUrlNormalize !== undefined
+  ) {
+    result.skipProxyUrlNormalize = userConfig.skipMiddlewareUrlNormalize
+  }
+
+  // Normalize & validate experimental.proxyClientMaxBodySize
+  if (typeof result.experimental?.proxyClientMaxBodySize !== 'undefined') {
+    const proxyClientMaxBodySize = result.experimental.proxyClientMaxBodySize
     let normalizedValue: number
 
-    if (typeof middlewareClientMaxBodySize === 'string') {
+    if (typeof proxyClientMaxBodySize === 'string') {
       const bytes =
         require('next/dist/compiled/bytes') as typeof import('next/dist/compiled/bytes')
-      normalizedValue = bytes.parse(middlewareClientMaxBodySize)
-    } else if (typeof middlewareClientMaxBodySize === 'number') {
-      normalizedValue = middlewareClientMaxBodySize
+      normalizedValue = bytes.parse(proxyClientMaxBodySize)
+    } else if (typeof proxyClientMaxBodySize === 'number') {
+      normalizedValue = proxyClientMaxBodySize
     } else {
       throw new Error(
         'Client Max Body Size must be a valid number (bytes) or filesize format string (e.g., "5mb")'
@@ -751,7 +816,7 @@ function assignDefaultsAndValidate(
     }
 
     // Store the normalized value as a number
-    result.experimental.middlewareClientMaxBodySize = normalizedValue
+    result.experimental.proxyClientMaxBodySize = normalizedValue
   }
 
   warnOptionHasBeenMovedOutOfExperimental(
@@ -1245,18 +1310,6 @@ function assignDefaultsAndValidate(
     )
   }
 
-  // We require clientSegmentCache to be enabled if clientParamParsing is
-  // enabled. This is because clientParamParsing is only relevant when
-  // clientSegmentCache is enabled.
-  if (
-    result.experimental.clientParamParsing &&
-    !result.experimental.clientSegmentCache
-  ) {
-    throw new Error(
-      `\`experimental.clientParamParsing\` can not be \`true\` when \`experimental.clientSegmentCache\` is \`false\`. Client param parsing is only relevant when client segment cache is enabled.`
-    )
-  }
-
   if (
     phase === PHASE_DEVELOPMENT_SERVER &&
     result.experimental?.isolatedDevBuild
@@ -1740,25 +1793,6 @@ function enforceExperimentalFeatures(
       false,
       configuredExperimentalFeatures
     )
-  }
-
-  // TODO: Remove this once we've made Client Param Parsing the default.
-  if (
-    process.env.__NEXT_EXPERIMENTAL_CACHE_COMPONENTS === 'true' &&
-    // We do respect an explicit value in the user config.
-    (config.experimental.clientParamParsing === undefined ||
-      (isDefaultConfig && !config.experimental.clientParamParsing))
-  ) {
-    config.experimental.clientParamParsing = true
-
-    if (configuredExperimentalFeatures) {
-      addConfiguredExperimentalFeature(
-        configuredExperimentalFeatures,
-        'clientParamParsing',
-        true,
-        'enabled by `__NEXT_EXPERIMENTAL_CACHE_COMPONENTS`'
-      )
-    }
   }
 
   // TODO: Remove this once we've made Cache Components the default.

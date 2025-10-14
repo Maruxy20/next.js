@@ -287,7 +287,6 @@ export interface ExperimentalConfig {
    * Partial Prerendering is enabled.
    */
   rdcForNavigations?: boolean
-  clientParamParsing?: boolean
 
   /**
    * The origins that are allowed to write the rewritten headers when
@@ -326,7 +325,11 @@ export interface ExperimentalConfig {
   // e.g. 0.01 for 10% potential false matches lower
   // percent increases size of the filter
   clientRouterFilterAllowedRate?: number
+  /**
+   * @deprecated Use `externalProxyRewritesResolve` instead.
+   */
   externalMiddlewareRewritesResolve?: boolean
+  externalProxyRewritesResolve?: boolean
   extensionAlias?: Record<string, any>
   allowedRevalidateHeaderKeys?: string[]
   fetchCacheKeyPrefix?: string
@@ -340,7 +343,11 @@ export interface ExperimentalConfig {
    * @deprecated use config.expireTime instead
    */
   expireTime?: number
+  /**
+   * @deprecated Use `proxyPrefetch` instead.
+   */
   middlewarePrefetch?: 'strict' | 'flexible'
+  proxyPrefetch?: 'strict' | 'flexible'
   manualClientBasePath?: boolean
   /**
    * CSS Chunking strategy. Defaults to `true` ("loose" mode), which guesses dependencies
@@ -716,11 +723,6 @@ export interface ExperimentalConfig {
   cacheComponents?: boolean
 
   /**
-   * @deprecated Use `experimental.cacheComponents` instead.
-   */
-  dynamicIO?: boolean
-
-  /**
    * Render <style> tags inline in the HTML for imported CSS assets.
    * Supports app-router in production mode only.
    */
@@ -793,8 +795,16 @@ export interface ExperimentalConfig {
   /**
    * Body size limit for request bodies with middleware configured.
    * Defaults to 10MB. Can be specified as a number (bytes) or string (e.g. '5mb').
+   *
+   * @deprecated Use `proxyClientMaxBodySize` instead.
    */
   middlewareClientMaxBodySize?: SizeLimit
+
+  /**
+   * Body size limit for request bodies with proxy configured.
+   * Defaults to 10MB. Can be specified as a number (bytes) or string (e.g. '5mb').
+   */
+  proxyClientMaxBodySize?: SizeLimit
 
   /**
    * Enable the Model Context Protocol (MCP) server for AI-assisted development.
@@ -1234,7 +1244,12 @@ export interface NextConfig {
    */
   turbopack?: TurbopackOptions
 
+  /**
+   * @deprecated Use `skipProxyUrlNormalize` instead.
+   */
   skipMiddlewareUrlNormalize?: boolean
+
+  skipProxyUrlNormalize?: boolean
 
   skipTrailingSlashRedirect?: boolean
 
@@ -1434,14 +1449,13 @@ export const defaultConfig = Object.freeze({
     caseSensitiveRoutes: false,
     clientSegmentCache: true,
     rdcForNavigations: false,
-    clientParamParsing: false,
     clientParamParsingOrigins: undefined,
     dynamicOnHover: false,
     preloadEntriesOnStart: true,
     clientRouterFilter: true,
     clientRouterFilterRedirects: false,
     fetchCacheKeyPrefix: '',
-    middlewarePrefetch: 'flexible',
+    proxyPrefetch: 'flexible',
     optimisticClientCache: true,
     manualClientBasePath: false,
     cpus: Math.max(
@@ -1506,7 +1520,7 @@ export const defaultConfig = Object.freeze({
     browserDebugInfoInTerminal: false,
     lockDistDir: true,
     isolatedDevBuild: true,
-    middlewareClientMaxBodySize: 10_485_760, // 10MB
+    proxyClientMaxBodySize: 10_485_760, // 10MB
     hideLogsAfterAbort: false,
   },
   htmlLimitedBots: undefined,
